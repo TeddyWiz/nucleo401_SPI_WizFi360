@@ -66,8 +66,8 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 uint8_t RX_BUFFER[512];
-uint8_t TX_BUFFER[512];
-uint8_t TX_BUFFER1[512];
+uint8_t TX_BUFFER[1024];
+uint8_t TX_BUFFER1[1024];
 uint8_t RX_Flag = 0;
 uint16_t RX_Index= 0;
 uint8_t Spi_rx_flag = 0;
@@ -114,9 +114,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	if(GPIO_Pin == GPIO_PIN_8)
 	{
 		Spi_rx_flag = 1;
+    //SPI_RECV_Proc();
 	}
 }
-void send_U_message(uint8_t *data, uint16_t len)
+void send_U_message(uint8_t type, uint8_t *data, uint16_t len)
 {
   int i;
   //HAL_UART_Transmit(&huart1, data, len, 0xFFFF);
@@ -168,7 +169,14 @@ void send_U_message(uint8_t *data, uint16_t len)
   if(err==0)
   {
     SPI_CS_OFF;
-    temp_CMD = SPI_CMD_TX_CMD;
+    if(type)
+    {
+      temp_CMD = SPI_CMD_TX_DATA;
+    }
+    else
+    {
+      temp_CMD = SPI_CMD_TX_CMD;
+    }
     HAL_SPI_TransmitReceive(&hspi1, &temp_CMD, TX_BUFFER, 1, 10);
     memcpy(TX_BUFFER , &len, sizeof(len));
     memcpy(TX_BUFFER + 2, data, TX_len);
@@ -248,7 +256,78 @@ int SPI_RECV_Proc(void)
     }
     printf("\r\n");
 #endif
+    //printf("RX data[%d]:%s \r\n", spi_rx_len, TX_BUFFER1);
+    //send_U_message(0,TX_BUFFER1,spi_rx_len);
+    printf("RX[%d]\r\n", spi_rx_len);
+    return 1;
+  }
+  return 0;
+}
+int SPI_RECV_Proc1(void)
+{
+  uint8_t temp_CMD, dum = 0xFF, dum2=0x00,rx_temp[2];
+  uint16_t spi_rx_len = 0;
+  uint16_t i;
+  
+#if debug1
+  printf("SPI Interrupt input\r\n");
+#endif
+  SPI_CS_OFF;
+  temp_CMD = SPI_REG_INT_STTS;
+  HAL_SPI_TransmitReceive(&hspi1, &temp_CMD, TX_BUFFER, 1, 10);
+  HAL_SPI_TransmitReceive(&hspi1, &dum, &rx_temp[0], 1, 10);
+  HAL_SPI_TransmitReceive(&hspi1, &dum, &rx_temp[1], 1, 10);
+  spi_rx_len = rx_temp[0] | (rx_temp[1] << 8);
+  SPI_CS_ON;
+#if debug1
+  printf("SPI_REG_INT_STTS[%d]\r\n", spi_rx_len);
+#endif
+  if((spi_rx_len != 0xffff) && (spi_rx_len & 0x01))
+  {
+    SPI_CS_OFF;
+    temp_CMD = SPI_REG_RX_DAT_LEN;
+    HAL_SPI_TransmitReceive(&hspi1, &temp_CMD, TX_BUFFER, 1, 10);
+    HAL_SPI_TransmitReceive(&hspi1, &dum, &rx_temp[0], 1, 10);
+    HAL_SPI_TransmitReceive(&hspi1, &dum, &rx_temp[1], 1, 10);
+    spi_rx_len = rx_temp[0] | (rx_temp[1] << 8);
+    SPI_CS_ON;
+  }
+#if debug1
+    printf("SPI_REG_RX_DAT_LEN[%d]\r\n", spi_rx_len);
+#endif
+  if(spi_rx_len > 0)
+  {
+    SPI_CS_OFF;
+    temp_CMD = SPI_CMD_RX_DATA;
+    HAL_SPI_TransmitReceive(&hspi1, &temp_CMD, &dum2, 1, 10);
+    //memset(TX_BUFFER1, 0, sizeof(TX_BUFFER1));
+#if 1
+    HAL_SPI_TransmitReceive(&hspi1, &dum, TX_BUFFER1, spi_rx_len, 10);
+    TX_BUFFER1[spi_rx_len+1] = 0;
+    for(i=0; i<spi_rx_len; i++)
+    {
+      EnQueue(TX_BUFFER1[i]);
+    }
+#else
+      for(i= 0; i<spi_rx_len; i++)
+      {
+        HAL_SPI_TransmitReceive(&hspi1, &dum, &rx_temp[0], 1, 10);
+        TX_BUFFER1[i] =rx_temp[0];
+      }
+      TX_BUFFER1[i++]=0;
+#endif
+    SPI_CS_ON;
+#if debug1
+    printf("RX Hex : ");
+    for(i=0; i<spi_rx_len; i++)
+    {
+      printf("[%d]%0.2X ",i, TX_BUFFER1[i]);
+    }
+    printf("\r\n");
+#endif
     printf("RX data[%d]:%s \r\n", spi_rx_len, TX_BUFFER1);
+    send_U_message(0,TX_BUFFER1,spi_rx_len);
+    //printf("RX data[%d]\r\n", spi_rx_len);
     return 1;
   }
   return 0;
@@ -264,6 +343,10 @@ int check_US_cmd(void)
       {
         return 1;
       }
+      else if(strncmp(RX_BUFFER + cnt, "SEND DATA1", 10) == 0)
+      {
+        return 4;
+      }
       else if(strncmp(RX_BUFFER + cnt, "SEND DATA", 9) == 0)
       {
         return 2;
@@ -275,37 +358,76 @@ int check_US_cmd(void)
 }
 void main_proc(int *main_seq)
 {
-  uint16_t cnt;
-  uint8_t TEST_DATA[1000]="0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789";
+  static uint16_t cnt = 0;
+  int res = 0;
+  uint8_t TEST_DATA[1000]="01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789";
   switch(*main_seq)
   {
     case 1:
+    #if 0
     if(AT_Connect_Proc() == 1)
     {
       //complete
       printf("Connect Success !!\r\n");
       *main_seq = 0;
     }
+    #endif
+    if(AT_trans_Proc() == 1)
+    {
+      //complete
+      printf("Connect Success !!\r\n");
+      *main_seq = 0;
+    }
+    cnt = 0;
     break;
     case 2:
-    for(cnt=0; cnt<1048; cnt++)
+    if(cnt<2097)
     {
-      if(AT_SEND_Proc(TEST_DATA, 1000)==0)
+      res = AT_SEND_Proc(TEST_DATA, 500);
+      if(res< 0)
       {
         printf("SPI SEND Fail[%d]\r\n", cnt);
         cnt--;
       }
-      else
+      else if(res == 1)
       {
         printf("SPI SEND OK[%d]\r\n", cnt);
+        cnt++;
       }
-      
     }
-    while(AT_SEND_Proc(TEST_DATA, 575)==0)
+    else
     {
-      printf("SPI SEND Fail Last\r\n");
+      res = AT_SEND_Proc(TEST_DATA, 75);
+    	if(res < 0)
+    	{
+			printf("SPI SEND Fail[%d]\r\n", cnt);
+			cnt--;
+		}
+		else if(res == 1)
+		{
+			printf("SPI SEND OK[%d]\r\n", cnt);
+			cnt++;
+			*main_seq =0;
+		}
     }
-    *main_seq =0;
+    break;
+    case 3: //loofback
+    break;
+    case 4:
+    if(cnt<2097)
+    {
+      send_U_message(0, TEST_DATA, 500);
+      cnt++;
+    }
+    else
+    {
+      send_U_message(0, TEST_DATA, 75);      
+      cnt++;
+
+		printf("SPI SEND OK[%d]\r\n", cnt);
+		*main_seq =0;
+
+    }
     break;
     default :
     break;
@@ -368,8 +490,14 @@ int main(void)
     }
     if(Spi_rx_flag)
     {
-    SPI_RECV_Proc();
-    Spi_rx_flag = 0;
+      if(main_seq == 3)
+      {
+        SPI_RECV_Proc1();
+      }
+      else
+        SPI_RECV_Proc();
+
+      Spi_rx_flag = 0;
     }
     main_proc(&main_seq);
 

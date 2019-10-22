@@ -49,10 +49,11 @@ uint16_t Queue_Empty(void);
 void EnQueue(uint8_t input);
 uint8_t DeQueue(void);
 //send uart data
-void send_U_message(uint8_t *data, uint16_t len);
+void send_U_message(uint8_t type, uint8_t *data, uint16_t len);
 int SPI_RECV_Proc(void);
 
 /////////////////////////
+int AT_trans_Proc(void);
 int AT_Connect_Proc(void);
 int AT_AirKiss_Proc(void);
 int data_Proc(uint8_t mode, uint8_t sock, uint16_t val, uint8_t *S_data);

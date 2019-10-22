@@ -228,7 +228,7 @@ int AT_CMD_send(uint8_t *cmd, enum cmd_send_type type, uint8_t sock, uint16_t va
 		len = sprintf((char*)cmd_buff,"AT+%s=%d,%d\r\n", cmd, sock, val);
 	}
 	printf("send[%d]%s\r\n", len, cmd_buff);
-	send_U_message(cmd_buff, len);
+	send_U_message(0, cmd_buff, len);
 	return len;
 }
 int AT_CMD_Proc(uint8_t *cmd, enum cmd_send_type type, uint8_t sock, uint16_t val, uint8_t *S_data, uint8_t *re_data, uint16_t time)
@@ -246,7 +246,8 @@ int AT_CMD_Proc(uint8_t *cmd, enum cmd_send_type type, uint8_t sock, uint16_t va
 	}
 	else if(req == 1)
 	{
-		if(delay_count(&Proc_cnt, &Proc_cnt1, 3))
+		SPI_RECV_Proc();
+		if((delay_count(&Proc_cnt, &Proc_cnt1, time))|(Queue_Empty() > 0))
 			req = 2;
 	}
 	else
@@ -259,7 +260,7 @@ int AT_CMD_Proc(uint8_t *cmd, enum cmd_send_type type, uint8_t sock, uint16_t va
 				temp_buf[temp_index++] = DeQueue();
 			}
 			temp_buf[temp_index] = 0;
-			printf("recv[%d]%s \r\n", temp_index, temp_buf);
+			printf("CMD recv[%d]%s \r\n", temp_index, temp_buf);
 			if(match_str(temp_buf, strlen(temp_buf), re_data))
 			{
 				req = 0;
@@ -270,18 +271,22 @@ int AT_CMD_Proc(uint8_t *cmd, enum cmd_send_type type, uint8_t sock, uint16_t va
 			else
 			{
 				//error action
+				req = 1;
 				retry++;
+				if(retry > 5)
+					return -1;
 			}
 		}
 		else
 		{
 			pre_len = data_len;
 		}
-		if(delay_count(&Proc_cnt, &Proc_cnt1, time))
+		if(data_len == 0)
 		{
-			//delay count action
-			req = 0;
+			req=1;
 			retry++;
+			if(retry > 5)
+				return -1;
 		}
 	}
 	return 0;
@@ -342,28 +347,91 @@ int AT_Connect_Proc(void)
 			seq++;
 		break;
 	case 3:
-		if(AT_CMD_Proc("CIPSTART", none_str, 0, 0, "\"TCP\",\"192.168.0.2\",5001", "OK", 100))
+		if(AT_CMD_Proc("CIPSTART", none_str, 0, 0, "\"TCP\",\"192.168.0.2\",3000", "CONNECT", 100))
 			return 1;
+		break;
+	}
+	return 0;
+}
+int AT_trans_Proc(void)
+{
+	static uint8_t seq = 0;
+	switch(seq)
+	{
+	case 0:		//CWMODE_CUR = 1
+		if(AT_CMD_Proc("CWMODE", CUR_int, 0, 1, 0, "OK", 3))
+			seq = 2;
+		break;
+	case 1:		//CWLAP
+		if(AT_CMD_Proc("CWLAP", noneval, 0, 0, 0, "OK", 100))
+			seq++;
+		break;
+	case 2:		//CWJAP
+		if(AT_CMD_Proc("CWJAP", CUR_str, 0, 0, "\"Teddy_AP\",\"12345678\"", "WIFI GOT IP", 1000))
+			seq++;
+		break;
+	case 3:
+		if(AT_CMD_Proc("CIPMODE", none, 0, 1, 0, "OK", 3))
+		{
+			seq++;
+		}
+		break;
+	case 4:
+		if(AT_CMD_Proc("CIPSTART", none_str, 0, 0, "\"TCP\",\"192.168.0.2\",5001", "CONNECT", 100))
+			seq++;
+		break;
+	case 5:
+		if(AT_CMD_Proc("CIPSEND", noneval, 0, 0, 0, "\r\n>", 3))
+		{
+			seq = 0;
+			return 1;
+		}
 		break;
 	}
 	return 0;
 }
 int AT_SEND_Proc(uint8_t *data, uint16_t len)
 {
+	static uint8_t send_seq = 0, recv_retry = 0;
 	uint16_t wait_time = 60000;
 	uint8_t temp_buf[100], temp_index = 0;
-	AT_CMD_Proc("CIPSEND", none, 0, len, 0, ">", 10);
-	send_U_message(data, len);
-	while(--wait_time > 0);
-	while(Queue_Empty())
+	switch(send_seq)
 	{
-		temp_buf[temp_index++] = DeQueue();
-	}
-	temp_buf[temp_index] = 0;
-	printf("recv[%d]%s \r\n", temp_index, temp_buf);
-	if(match_str(temp_buf, strlen(temp_buf), "SEND OK"))
-	{
-		return 1;
+	case 0:
+		if(AT_CMD_Proc("CIPSEND", none, 0, len, 0, "> ", 3))
+		{
+			send_seq++;
+			recv_retry = 0;
+		}
+		break;
+	case 1:
+		send_U_message(0, data, len);
+		send_seq++;
+		break;
+	case 2:
+		SPI_RECV_Proc();
+		if(Queue_Empty()>0)
+			send_seq++;
+		break;
+	case 3:
+		while(Queue_Empty())
+		{
+			temp_buf[temp_index++] = DeQueue();
+		}
+		temp_buf[temp_index] = 0;
+		//printf("recv[%d]%s \r\n", temp_index, temp_buf);
+		if(match_str(temp_buf, strlen(temp_buf), "SEND OK"))
+		{
+			send_seq = 0;
+			return 1;
+		}
+		send_seq--;
+		recv_retry++;
+		if(recv_retry > 5)
+		{
+			return -1;
+		}
+		break;
 	}
 	return 0;
 }
@@ -428,7 +496,7 @@ int data_Proc(uint8_t mode, uint8_t sock, uint16_t val, uint8_t *S_data)
 		}
 		if(status == 1)
 		{
-			send_U_message(S_data, val);
+			send_U_message(1, S_data, val);
 			S_data[val] = 0;
 			printf("send data[%d]%s\r\n",val, S_data);
 			return 1;
@@ -515,7 +583,7 @@ uint8_t U2_test(void)
 		// {
 		// 	USART1_UART_change();
 		// }
-		send_U_message(u2_data.RX_Buffer, u2_data.index);
+		send_U_message(0, u2_data.RX_Buffer, u2_data.index);
 		u2_data.index = 0;
 	}
 	else
