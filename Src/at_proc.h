@@ -68,6 +68,7 @@ int AirKissConnect(uint8_t *data, uint16_t len);
 int RecvDataPars(uint8_t *data, uint16_t len);
 int AT_SEND_Proc(uint8_t *data, uint16_t len);
 int Check_init(void);
+void spi_init(void);
 
 #if 1	//temp data test uart2
 void init_U2_data(void);

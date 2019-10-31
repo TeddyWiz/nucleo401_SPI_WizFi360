@@ -171,12 +171,15 @@ int Check_init(void)
 		{
 			wait_time=0;
 			cnt++;
-			if(cnt>30)
+			printf("cnt=%d\r\n", cnt);
+			if(cnt>5)
 			{
 				break;
 			}
 		}
+		SPI_RECV_Proc();
 	}
+	printf("recv OK\r\n");
 	while(Queue_Empty())
 	{
 		SPI_RECV_Proc();
@@ -189,7 +192,6 @@ int Check_init(void)
 		return 1;
 	}
 	return 0;
-
 }
 int AT_CMD_send(uint8_t *cmd, enum cmd_send_type type, uint8_t sock, uint16_t val, uint8_t *S_data)
 {
@@ -235,14 +237,16 @@ int AT_CMD_Proc(uint8_t *cmd, enum cmd_send_type type, uint8_t sock, uint16_t va
 {
 	static uint8_t req = 0, retry = 0, pre_len = 0;
 	static uint16_t Proc_cnt = 0, Proc_cnt1 = 0;
-	uint8_t temp_buf[512];
-	uint16_t temp_index = 0, data_len = 0;
+	static uint8_t temp_buf[512];
+	static uint16_t temp_index = 0;
+	uint16_t data_len = 0;
 	if(req == 0)
 	{
 		AT_CMD_send(cmd, type, sock, val, S_data);
 		req = 1;
 		Proc_cnt = 0;
 		Proc_cnt1 = 0;
+		temp_index = 0;
 	}
 	else if(req == 1)
 	{
@@ -253,7 +257,8 @@ int AT_CMD_Proc(uint8_t *cmd, enum cmd_send_type type, uint8_t sock, uint16_t va
 	else
 	{
 		data_len = Queue_Empty();
-		if((data_len > 0) &&(data_len == pre_len))
+		//if((data_len > 0) &&(data_len == pre_len))
+		if(data_len > 0)
 		{
 			while(Queue_Empty())
 			{
@@ -266,6 +271,7 @@ int AT_CMD_Proc(uint8_t *cmd, enum cmd_send_type type, uint8_t sock, uint16_t va
 				req = 0;
 				Proc_cnt = 0;
 				Proc_cnt1 = 0;
+				printf("send complete[%d]\r\n", req);
 				return 1;
 			}
 			else
@@ -377,7 +383,7 @@ int AT_trans_Proc(void)
 		}
 		break;
 	case 4:
-		if(AT_CMD_Proc("CIPSTART", none_str, 0, 0, "\"TCP\",\"192.168.0.2\",5001", "CONNECT", 100))
+		if(AT_CMD_Proc("CIPSTART", none_str, 0, 0, "\"TCP\",\"192.168.0.2\",3000", "CONNECT", 100))
 			seq++;
 		break;
 	case 5:
@@ -393,27 +399,60 @@ int AT_trans_Proc(void)
 int AT_SEND_Proc(uint8_t *data, uint16_t len)
 {
 	static uint8_t send_seq = 0, recv_retry = 0;
-	uint16_t wait_time = 60000;
-	uint8_t temp_buf[100], temp_index = 0;
+	static uint16_t wait_time = 0;
+	uint8_t temp_buf[512], temp_index = 0;
+	uint16_t data_len = len, data_shift = 0;
 	switch(send_seq)
 	{
 	case 0:
-		if(AT_CMD_Proc("CIPSEND", none, 0, len, 0, "> ", 3))
+		//printf("send start\r\n");
+		send_seq++;
+		break;
+	case 1:
+		if(AT_CMD_Proc("CIPSEND", none, 0, len, 0, "> ", 3) == 1)
 		{
 			send_seq++;
 			recv_retry = 0;
+			wait_time = 0;
 		}
 		break;
-	case 1:
-		send_U_message(0, data, len);
+	case 2:
+		//send_U_message(0, data, len);
+		//printf("message send \r\n");
+		while (data_len > 0)
+		{
+			if(data_len > 500)
+			{
+				send_U_message(1, data + data_shift, 500);
+				data_shift += 500;
+				data_len = data_len - 500;
+			}
+			else
+			{
+				send_U_message(1, data + data_shift, data_len);
+				data_len = 0;
+			}
+		}
+
+		
 		send_seq++;
 		break;
-	case 2:
+	case 3:
 		SPI_RECV_Proc();
+		#if 0
+		wait_time++;
+		if(wait_time > 20000)
+		{
+			printf("send receive fail \r\n");
+			//send_seq = 0;
+			spi_init();
+			//return -1;
+		}
+		#endif
 		if(Queue_Empty()>0)
 			send_seq++;
 		break;
-	case 3:
+	case 4:
 		while(Queue_Empty())
 		{
 			temp_buf[temp_index++] = DeQueue();

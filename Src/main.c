@@ -44,6 +44,8 @@
 #define SPI_CMD_TX_DATA			0x90
 #define SPI_CS_OFF				HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_RESET)
 #define SPI_CS_ON				HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_SET)
+#define SPI_INT_STTS			HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_8)
+
 
 #define debug 					0
 #define debug1 					0
@@ -156,6 +158,7 @@ void send_U_message(uint8_t type, uint8_t *data, uint16_t len)
     TX_len = ((TX_len + 3)/4) << 2;
     //TX_len = (TX_len + 3) & 0xFFFC;
   }
+  //printf("SPI_REG_TX_BUFF_AVAIL[%d]\r\n", spi_rx_len);
 #if debug
   printf("SPI_REG_TX_BUFF_AVAIL[%d]\r\n", spi_rx_len);
   printf("TX Hex1 : ");
@@ -165,7 +168,8 @@ void send_U_message(uint8_t type, uint8_t *data, uint16_t len)
   }
   printf("\r\n");
 #endif
-  printf("trans[%d] : %s\r\n", len, data);
+  //printf("trans[%d][%d] : %s\r\n", len, TX_len, data);
+  printf("trans[%d][%d]\r\n", len, TX_len);
   if(err==0)
   {
     SPI_CS_OFF;
@@ -179,7 +183,7 @@ void send_U_message(uint8_t type, uint8_t *data, uint16_t len)
     }
     HAL_SPI_TransmitReceive(&hspi1, &temp_CMD, TX_BUFFER, 1, 10);
     memcpy(TX_BUFFER , &len, sizeof(len));
-    memcpy(TX_BUFFER + 2, data, TX_len);
+    memcpy(TX_BUFFER + 2, data, len);
     HAL_SPI_TransmitReceive(&hspi1, TX_BUFFER, RX_BUFFER, TX_len, 10);
 
     SPI_CS_ON;
@@ -196,7 +200,7 @@ void send_U_message(uint8_t type, uint8_t *data, uint16_t len)
 }
 int SPI_RECV_Proc(void)
 {
-  uint8_t temp_CMD, dum = 0xFF, dum2=0x00,rx_temp[2];
+  uint8_t temp_CMD, dum = 0xFF, dum2=0x00,rx_temp[2]={0,0};
   uint16_t spi_rx_len = 0;
   uint16_t i;
   
@@ -210,7 +214,7 @@ int SPI_RECV_Proc(void)
   HAL_SPI_TransmitReceive(&hspi1, &dum, &rx_temp[1], 1, 10);
   spi_rx_len = rx_temp[0] | (rx_temp[1] << 8);
   SPI_CS_ON;
-#if debug1
+#if 0
   printf("SPI_REG_INT_STTS[%d]\r\n", spi_rx_len);
 #endif
   if((spi_rx_len != 0xffff) && (spi_rx_len & 0x01))
@@ -256,9 +260,9 @@ int SPI_RECV_Proc(void)
     }
     printf("\r\n");
 #endif
-    //printf("RX data[%d]:%s \r\n", spi_rx_len, TX_BUFFER1);
+    //printf("RX[%d]:%s \r\n", spi_rx_len, TX_BUFFER1);
     //send_U_message(0,TX_BUFFER1,spi_rx_len);
-    printf("RX[%d]\r\n", spi_rx_len);
+    //printf("RX[%d]\r\n", spi_rx_len);
     return 1;
   }
   return 0;
@@ -360,30 +364,43 @@ void main_proc(int *main_seq)
 {
   static uint16_t cnt = 0;
   int res = 0;
-  uint8_t TEST_DATA[1000]="01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789";
+  uint8_t TEST_DATA[1001]="01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890";
   switch(*main_seq)
   {
     case 1:
-    #if 0
+    #if 1
     if(AT_Connect_Proc() == 1)
     {
       //complete
       printf("Connect Success !!\r\n");
       *main_seq = 0;
     }
-    #endif
+    #else
     if(AT_trans_Proc() == 1)
     {
       //complete
       printf("Connect Success !!\r\n");
       *main_seq = 0;
     }
+    #endif
     cnt = 0;
     break;
     case 2:
-    if(cnt<2097)
+    #if 0 //once
+    res = AT_SEND_Proc(TEST_DATA, 700);
+    if(res< 0)
     {
-      res = AT_SEND_Proc(TEST_DATA, 500);
+      printf("SPI SEND Fail\r\n");
+    }
+    else if(res == 1)
+    {
+      printf("SPI SEND OK\r\n");
+      *main_seq = 0;
+    }
+    #else
+    if(cnt<1048)
+    {
+      res = AT_SEND_Proc(TEST_DATA, 1000);
       if(res< 0)
       {
         printf("SPI SEND Fail[%d]\r\n", cnt);
@@ -402,14 +419,16 @@ void main_proc(int *main_seq)
     	{
 			printf("SPI SEND Fail[%d]\r\n", cnt);
 			cnt--;
-		}
-		else if(res == 1)
-		{
-			printf("SPI SEND OK[%d]\r\n", cnt);
-			cnt++;
-			*main_seq =0;
-		}
+      }
+      else if(res == 1)
+      {
+        printf("SPI SEND OK[%d]\r\n", cnt);
+        printf("SPI SEND COMPLETE[%d]\r\n", cnt);
+        cnt++;
+        *main_seq =0;
+      }
     }
+    #endif
     break;
     case 3: //loofback
     break;
@@ -478,7 +497,8 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   
-  Check_init();
+  //Check_init();
+  printf("WizFi360 Ready !!\r\n");
   while (1)
   {
     if(RX_Flag)
@@ -488,7 +508,7 @@ int main(void)
     	RX_Flag  = 0;
 		  //memset(RX_BUFFER, 0, sizeof(RX_BUFFER));
     }
-    if(Spi_rx_flag)
+    if(Spi_rx_flag||SPI_INT_STTS)
     {
       if(main_seq == 3)
       {
@@ -666,7 +686,10 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
+void spi_init(void)
+{
+  MX_SPI1_Init();
+}
 /* USER CODE END 4 */
 
 /**
