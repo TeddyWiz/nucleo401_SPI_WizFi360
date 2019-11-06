@@ -67,6 +67,7 @@ uint8_t match_ok(uint8_t *data, uint16_t len);
 int AirKissConnect(uint8_t *data, uint16_t len);
 int RecvDataPars(uint8_t *data, uint16_t len);
 int AT_SEND_Proc(uint8_t *data, uint16_t len);
+int AT_SEND_Proc1(uint8_t *data, uint16_t len);
 int Check_init(void);
 void spi_init(void);
 

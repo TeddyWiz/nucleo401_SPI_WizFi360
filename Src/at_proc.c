@@ -265,13 +265,13 @@ int AT_CMD_Proc(uint8_t *cmd, enum cmd_send_type type, uint8_t sock, uint16_t va
 				temp_buf[temp_index++] = DeQueue();
 			}
 			temp_buf[temp_index] = 0;
-			printf("CMD recv[%d]%s \r\n", temp_index, temp_buf);
+			//printf("CMD recv[%d]%s \r\n", temp_index, temp_buf);
 			if(match_str(temp_buf, strlen(temp_buf), re_data))
 			{
 				req = 0;
 				Proc_cnt = 0;
 				Proc_cnt1 = 0;
-				printf("send complete[%d]\r\n", req);
+				//printf("send complete[%d]\r\n", req);
 				return 1;
 			}
 			else
@@ -473,6 +473,24 @@ int AT_SEND_Proc(uint8_t *data, uint16_t len)
 		break;
 	}
 	return 0;
+}
+int AT_SEND_Proc1(uint8_t *data, uint16_t len)
+{
+	uint16_t data_len = len, data_shift = 0;
+	while (data_len > 0)
+	{
+		if(data_len > 500)
+		{
+			send_U_message(1, data + data_shift, 500);
+			data_shift += 500;
+			data_len = data_len - 500;
+		}
+		else
+		{
+			send_U_message(1, data + data_shift, data_len);
+			data_len = 0;
+		}
+	}
 }
 int AT_AirKiss_Proc(void)
 {

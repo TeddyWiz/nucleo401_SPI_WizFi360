@@ -125,11 +125,11 @@ void send_U_message(uint8_t type, uint8_t *data, uint16_t len)
   //HAL_UART_Transmit(&huart1, data, len, 0xFFFF);
   //read TX_BUFF_AVAIL
   uint8_t temp_CMD, retry = 0, err = 0, dum = 0xFF, rx_temp[2];
-  uint16_t spi_rx_len = 0, cnt, TX_len;
+  uint16_t spi_rx_len = 0, TX_len;
   memset(TX_BUFFER,0, sizeof(TX_BUFFER));
   SPI_CS_OFF;
   temp_CMD = SPI_REG_TX_BUFF_AVAIL;
-  cnt = 0;
+  
   while((spi_rx_len != 0xffff) && (0 == (spi_rx_len & 0x02)))
   {
     retry++;
@@ -137,12 +137,7 @@ void send_U_message(uint8_t type, uint8_t *data, uint16_t len)
     HAL_SPI_TransmitReceive(&hspi1, &dum, &rx_temp[0], 1, 10);
     HAL_SPI_TransmitReceive(&hspi1, &dum, &rx_temp[1], 1, 10);
     spi_rx_len = rx_temp[0] | (rx_temp[1] << 8);
-    //RCC_Delay(1);
-    cnt=0;
-    while(cnt <60000)
-    {
-      cnt++;
-    }
+    
     if(retry > SPI_TIMEOUT)
     {
       printf("SPI CMD timeout\r\n");
@@ -169,7 +164,7 @@ void send_U_message(uint8_t type, uint8_t *data, uint16_t len)
   printf("\r\n");
 #endif
   //printf("trans[%d][%d] : %s\r\n", len, TX_len, data);
-  printf("trans[%d][%d]\r\n", len, TX_len);
+  //printf("trans[%d][%d]\r\n", len, TX_len);
   if(err==0)
   {
     SPI_CS_OFF;
@@ -235,23 +230,14 @@ int SPI_RECV_Proc(void)
     SPI_CS_OFF;
     temp_CMD = SPI_CMD_RX_DATA;
     HAL_SPI_TransmitReceive(&hspi1, &temp_CMD, &dum2, 1, 10);
-    //memset(TX_BUFFER1, 0, sizeof(TX_BUFFER1));
-#if 1
     HAL_SPI_TransmitReceive(&hspi1, &dum, TX_BUFFER1, spi_rx_len, 10);
     TX_BUFFER1[spi_rx_len+1] = 0;
     for(i=0; i<spi_rx_len; i++)
     {
       EnQueue(TX_BUFFER1[i]);
     }
-#else
-      for(i= 0; i<spi_rx_len; i++)
-      {
-        HAL_SPI_TransmitReceive(&hspi1, &dum, &rx_temp[0], 1, 10);
-        TX_BUFFER1[i] =rx_temp[0];
-      }
-      TX_BUFFER1[i++]=0;
-#endif
     SPI_CS_ON;
+    
 #if debug1
     printf("RX Hex : ");
     for(i=0; i<spi_rx_len; i++)
@@ -261,8 +247,7 @@ int SPI_RECV_Proc(void)
     printf("\r\n");
 #endif
     //printf("RX[%d]:%s \r\n", spi_rx_len, TX_BUFFER1);
-    //send_U_message(0,TX_BUFFER1,spi_rx_len);
-    //printf("RX[%d]\r\n", spi_rx_len);
+    printf("RX[%d]\r\n", spi_rx_len);
     return 1;
   }
   return 0;
@@ -304,23 +289,15 @@ int SPI_RECV_Proc1(void)
     SPI_CS_OFF;
     temp_CMD = SPI_CMD_RX_DATA;
     HAL_SPI_TransmitReceive(&hspi1, &temp_CMD, &dum2, 1, 10);
-    //memset(TX_BUFFER1, 0, sizeof(TX_BUFFER1));
-#if 1
     HAL_SPI_TransmitReceive(&hspi1, &dum, TX_BUFFER1, spi_rx_len, 10);
     TX_BUFFER1[spi_rx_len+1] = 0;
+    #if 1
     for(i=0; i<spi_rx_len; i++)
     {
       EnQueue(TX_BUFFER1[i]);
     }
-#else
-      for(i= 0; i<spi_rx_len; i++)
-      {
-        HAL_SPI_TransmitReceive(&hspi1, &dum, &rx_temp[0], 1, 10);
-        TX_BUFFER1[i] =rx_temp[0];
-      }
-      TX_BUFFER1[i++]=0;
-#endif
     SPI_CS_ON;
+    #endif
 #if debug1
     printf("RX Hex : ");
     for(i=0; i<spi_rx_len; i++)
@@ -330,13 +307,13 @@ int SPI_RECV_Proc1(void)
     printf("\r\n");
 #endif
     printf("RX data[%d]:%s \r\n", spi_rx_len, TX_BUFFER1);
-    send_U_message(0,TX_BUFFER1,spi_rx_len);
+    send_U_message(1,TX_BUFFER1,spi_rx_len);
     //printf("RX data[%d]\r\n", spi_rx_len);
     return 1;
   }
   return 0;
 }
-int check_US_cmd(void)
+int check_US_cmd(int status)
 {
   int cnt;
   for(cnt=0; cnt<RX_Index; cnt++)
@@ -347,60 +324,92 @@ int check_US_cmd(void)
       {
         return 1;
       }
-      else if(strncmp(RX_BUFFER + cnt, "SEND DATA1", 10) == 0)
+      else if(strncmp(RX_BUFFER + cnt, "TRANS CONNECT", 12) == 0)
+      {
+        return 2;
+      }
+      else if(strncmp(RX_BUFFER + cnt, "TRANS LOOFBACK", 12) == 0)
+      {
+        return 5;
+      }
+      else if(strncmp(RX_BUFFER + cnt, "SEND TRANS DATA", 15) == 0)
       {
         return 4;
       }
       else if(strncmp(RX_BUFFER + cnt, "SEND DATA", 9) == 0)
       {
-        return 2;
+        return 3;
       }
-
+      else if(strncmp(RX_BUFFER + cnt, "exit", 4) == 0)
+      {
+        return 0;
+      }
     }
   }
-  return 0;
+  return status;
 }
 void main_proc(int *main_seq)
 {
   static uint16_t cnt = 0;
   int res = 0;
-  uint8_t TEST_DATA[1001]="01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890";
+  uint8_t TEST_DATA[2001]="012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890";
   switch(*main_seq)
   {
     case 1:
-    #if 1
-    if(AT_Connect_Proc() == 1)
-    {
-      //complete
-      printf("Connect Success !!\r\n");
-      *main_seq = 0;
-    }
-    #else
-    if(AT_trans_Proc() == 1)
-    {
-      //complete
-      printf("Connect Success !!\r\n");
-      *main_seq = 0;
-    }
-    #endif
-    cnt = 0;
+      if(AT_Connect_Proc() == 1)
+      {
+        //complete
+        printf("Connect Success !!\r\n");
+        *main_seq = 0;
+      }
+      cnt = 0;
     break;
     case 2:
-    #if 0 //once
-    res = AT_SEND_Proc(TEST_DATA, 700);
-    if(res< 0)
-    {
-      printf("SPI SEND Fail\r\n");
-    }
-    else if(res == 1)
-    {
-      printf("SPI SEND OK\r\n");
-      *main_seq = 0;
-    }
+      if(AT_trans_Proc() == 1)
+      {
+        //complete
+        printf("Connect Success !!\r\n");
+        *main_seq = 0;
+      }
+      cnt = 0 ;
+    break;
+    case 3:
+    #if 1 //once
+      if(cnt<1048)
+      {
+        res = AT_SEND_Proc(TEST_DATA, 1000);
+        if(res< 0)
+        {
+        printf("SPI SEND Fail[%d]\r\n", cnt);
+        cnt--;
+        }
+        else if(res == 1)
+        {
+        //printf("SPI SEND OK[%d]\r\n", cnt);
+        cnt++;
+        }
+      }
+      else
+      {
+        res = AT_SEND_Proc(TEST_DATA, 75);
+        if(res < 0)
+        {
+          printf("SPI SEND Fail[%d]\r\n", cnt);
+          cnt--;
+        }
+        else if(res == 1)
+        {
+        //printf("SPI SEND OK[%d]\r\n", cnt);
+        printf("SPI SEND COMPLETE[%d]\r\n", cnt);
+        cnt++;
+        *main_seq =0;
+        }
+      }
     #else
     if(cnt<1048)
+    //if(cnt<524)
     {
-      res = AT_SEND_Proc(TEST_DATA, 1000);
+      res = AT_SEND_Proc1(TEST_DATA, 1000);
       if(res< 0)
       {
         printf("SPI SEND Fail[%d]\r\n", cnt);
@@ -408,13 +417,13 @@ void main_proc(int *main_seq)
       }
       else if(res == 1)
       {
-        printf("SPI SEND OK[%d]\r\n", cnt);
+        //printf("SPI SEND OK[%d]\r\n", cnt);
         cnt++;
       }
     }
     else
     {
-      res = AT_SEND_Proc(TEST_DATA, 75);
+      res = AT_SEND_Proc1(TEST_DATA, 75);
     	if(res < 0)
     	{
 			printf("SPI SEND Fail[%d]\r\n", cnt);
@@ -426,27 +435,29 @@ void main_proc(int *main_seq)
         printf("SPI SEND COMPLETE[%d]\r\n", cnt);
         cnt++;
         *main_seq =0;
+        cnt = 0;
       }
     }
     #endif
     break;
-    case 3: //loofback
-    break;
     case 4:
     if(cnt<2097)
     {
-      send_U_message(0, TEST_DATA, 500);
+      send_U_message(1, TEST_DATA, 500);
       cnt++;
     }
     else
     {
-      send_U_message(0, TEST_DATA, 75);      
+      send_U_message(1, TEST_DATA, 75);      
       cnt++;
 
-		printf("SPI SEND OK[%d]\r\n", cnt);
-		*main_seq =0;
-
+		  printf("SPI SEND OK[%d]\r\n", cnt);
+		  *main_seq =0;
+      cnt = 0;
     }
+    break;
+    case 5:
+    
     break;
     default :
     break;
@@ -467,7 +478,7 @@ int main(void)
 {
   /* USER CODE BEGIN 1 */
   int main_seq = 0;
-	/* USER CODE END 1 */
+  /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
 
@@ -503,14 +514,14 @@ int main(void)
   {
     if(RX_Flag)
     {
-    	main_seq = check_US_cmd();
+    	main_seq = check_US_cmd(main_seq);
     	RX_Index = 0;
     	RX_Flag  = 0;
 		  //memset(RX_BUFFER, 0, sizeof(RX_BUFFER));
     }
     if(Spi_rx_flag||SPI_INT_STTS)
     {
-      if(main_seq == 3)
+      if(main_seq == 5)
       {
         SPI_RECV_Proc1();
       }
