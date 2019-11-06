@@ -491,6 +491,7 @@ int AT_SEND_Proc1(uint8_t *data, uint16_t len)
 			data_len = 0;
 		}
 	}
+	return 0;
 }
 int AT_AirKiss_Proc(void)
 {
