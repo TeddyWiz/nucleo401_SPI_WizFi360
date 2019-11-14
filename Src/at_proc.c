@@ -14,6 +14,10 @@ struct queue WizFi_Queue;
 struct us_data u2_data;
 uint8_t WIFI_SSID[50]="Teddy_AP";
 uint8_t WIFI_PW[50]="12345678";
+sock_sta sock_status;
+char sock_count = 0;
+uint8_t sock_Con_Sta[5];
+struct Recv_data SPI_Recv_data[5];
 extern UART_HandleTypeDef huart1;
 void Set_WIFI_DATA(uint8_t *SSID, uint8_t *PW)
 {
@@ -26,7 +30,14 @@ void Get_WIFI_DATA(uint8_t *SSID, uint8_t *PW)
 	memcpy(SSID, WIFI_SSID, strlen((char*)WIFI_SSID));
 	memcpy(PW, WIFI_PW, strlen((char*)WIFI_PW));
 }
-
+void set_Socket_status(sock_sta status)
+{
+	sock_status = status;
+}
+sock_sta get_Socket_status(void)
+{
+	return sock_status;
+}
 void init_U2_data(void)
 {
 	memset(&u2_data, 0, sizeof(u2_data));
@@ -103,6 +114,74 @@ uint8_t DeQueue(void)
 	return WizFi_Queue.data[WizFi_Queue.tail++];
 }
 
+// connect status data process
+int SPI_Input_Data_Proc(uint16_t Len, uint8_t *Data)
+{
+	static uint8_t sock_num = 0;
+	switch(get_Socket_status())
+	{
+		case CONN_IDLE_MODE:
+		if((Len == 11)&&(isdigit(Data[0])))
+		{
+			if((strncmp(Data + 2, "CONNECT", 7)== 0)&&((Data[0]-'0') < 5))
+			{
+				sock_count++;
+				sock_Con_Sta[Data[0]-'0'] = 1;
+				set_Socket_status(CONN_MODE);
+			}
+		}
+		break;
+		case CONN_MODE:
+		if(strncmp(Data,"+IPD",4))
+		{
+			//receive mode
+			printf("sock %d[%c]", (Data[7] - '0'), Data[7]);
+			sock_num = (Data[7] - '0') % 5;
+			set_Socket_status(RECV_MODE);
+		}
+		else if((Len == 11)&&(isdigit(Data[0])))
+		{
+			//add connection
+			if((strncmp(Data + 2, "CONNECT", 7)== 0)&&((Data[0]-'0') < 5))
+			{
+				sock_count++;
+				sock_Con_Sta[Data[0]-'0'] = 1;
+			}
+		}
+		else if((Len == 10)&&(isdigit(Data[0])))
+		{
+			//del connection
+			if((strncmp(Data + 2, "CLOSED", 6)== 0)&&((Data[0]-'0') < 5))
+			{
+				sock_count--;
+				sock_Con_Sta[Data[0]-'0'] = 0;
+				if(sock_count <= 0)
+				{
+					set_Socket_status(CONN_IDLE_MODE);
+					return 0;
+				}
+			}
+		}
+		else
+		{
+			/* invalid */
+		}
+		
+		break;
+		case RECV_MODE:
+		memcpy(SPI_Recv_data[sock_num].data[SPI_Recv_data[sock_num].count++], Data, Len);
+		printf("sock[%d],Data[%d]L[%d]:%s\r\n",sock_num, SPI_Recv_data[sock_num].count-1, Len, SPI_Recv_data[sock_num].data[SPI_Recv_data[sock_num].count-1]);
+		if(SPI_Recv_data[sock_num].count > 4)
+		{
+			SPI_Recv_data[sock_num].count = 0;
+		}
+		set_Socket_status(CONN_MODE);
+		break;
+		default :
+		break;
+	}
+	return 0;
+}
 
 uint8_t delay_count(uint16_t *time1, uint16_t *time2, uint16_t set_time)
 {
@@ -392,6 +471,46 @@ int AT_trans_Proc(void)
 			seq = 0;
 			return 1;
 		}
+		break;
+	}
+	return 0;
+}
+int AT_Server_Open_Proc(void)
+{
+	static uint8_t seq = 0;
+	extern char AP_CON_DATA[30]; 
+	switch(seq)
+	{
+	case 0:		//CWMODE_CUR = 1
+		if(AT_CMD_Proc("CWMODE", CUR_int, 0, 1, 0, "OK", 3))
+			seq = 2;
+		break;
+	case 1:		//CWLAP
+		if(AT_CMD_Proc("CWLAP", noneval, 0, 0, 0, "OK", 100))
+			seq++;
+		break;
+	case 2:		//CWJAP
+		if(AT_CMD_Proc("CWJAP", CUR_str, 0, 0, AP_CON_DATA, "OK", 1000))
+			seq++;
+		break;
+	case 3:
+		if(AT_CMD_Proc("CIPMUX", none, 0, 1, 0, "OK", 10))
+			seq++;
+		break;
+	case 4:
+		if(AT_CMD_Proc("CIPSERVER", none_soc, 1, 5001, 0, "OK", 100))
+			#if 1
+			seq++;
+			#else
+			seq =0;
+			return 1;
+			#endif
+		break;
+	case 5:
+		if(AT_CMD_Proc("CIFSR", noneval, 0, 0, 0, "OK", 10))
+			seq = 0;
+			set_Socket_status(CONN_IDLE_MODE);
+			return 1;
 		break;
 	}
 	return 0;

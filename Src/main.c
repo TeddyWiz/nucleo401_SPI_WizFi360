@@ -73,6 +73,9 @@ uint8_t SPI_RX_BUFF[1048];
 uint8_t RX_Flag = 0;
 uint16_t RX_Index= 0;
 uint8_t Spi_rx_flag = 0;
+//user change AP  data and Server port
+char AP_CON_DATA[30] = "\"Teddy_AP\",\"12345678\"";
+uint16_t Server_Port = 5001;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -231,13 +234,33 @@ int SPI_RECV_Proc(void)
     temp_CMD = SPI_CMD_RX_DATA;
     HAL_SPI_TransmitReceive(&hspi1, &temp_CMD, &dum2, 1, 10);
     HAL_SPI_TransmitReceive(&hspi1, &dum, SPI_RX_BUFF, spi_rx_len, 10);
-    SPI_RX_BUFF[spi_rx_len+1] = 0;
+    SPI_RX_BUFF[spi_rx_len] = 0;
+    #if 0
     for(i=0; i<spi_rx_len; i++)
     {
       EnQueue(SPI_RX_BUFF[i]);
     }
+    #endif
     SPI_CS_ON;
+    #if 1 //teddy 191111
+    if(get_Socket_status() == 0)
+    {
+      for(i=0; i<spi_rx_len; i++)
+      {
+        EnQueue(SPI_RX_BUFF[i]);
+      }
+    }
+    else
+    {
+      SPI_Input_Data_Proc(spi_rx_len, SPI_RX_BUFF);
+    }
     
+    #else
+    for(i=0; i<spi_rx_len; i++)
+    {
+      EnQueue(SPI_RX_BUFF[i]);
+    }
+    #endif
 #if debug1
     printf("RX Hex : ");
     for(i=0; i<spi_rx_len; i++)
@@ -246,8 +269,8 @@ int SPI_RECV_Proc(void)
     }
     printf("\r\n");
 #endif
-    //printf("RX[%d]:%s \r\n", spi_rx_len, SPI_RX_BUFF);
-    printf("RX[%d]\r\n", spi_rx_len);
+    printf("RX[%d]:[%s]\r\n", spi_rx_len, SPI_RX_BUFF);
+    //printf("RX[%d]\r\n", spi_rx_len);
     return 1;
   }
   return 0;
@@ -342,6 +365,10 @@ int check_US_cmd(int status)
       else if(strncmp(RX_BUFFER + cnt, "SEND DATA", 9) == 0)
       {
         return 3;
+      }
+      else if(strncmp(RX_BUFFER + cnt, "Server open", 11) == 0)
+      {
+        return 6;
       }
       else if(strncmp(RX_BUFFER + cnt, "exit", 4) == 0)
       {
@@ -462,7 +489,13 @@ void main_proc(int *main_seq)
     #endif
     break;
     case 5:
-    
+    break;
+    case 6: 
+    if(AT_Server_Open_Proc())
+    {
+      printf("Connect and Server Open Success !!\r\n");
+      *main_seq = 0;
+    }
     break;
     default :
     break;
@@ -483,6 +516,8 @@ int main(void)
 {
   /* USER CODE BEGIN 1 */
   int main_seq = 0;
+  int temp_set_seq = 1;
+  unsigned int temp_delay = 0;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -512,9 +547,11 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  
+
   //Check_init();
   printf("WizFi360 Ready !!\r\n");
+  while(temp_delay++<60000);
+  temp_delay = 0;
   while (1)
   {
     if(RX_Flag)
@@ -541,7 +578,7 @@ int main(void)
     }
     #else
     
-    if(Spi_rx_flag||SPI_INT_STTS)
+    if(Spi_rx_flag||(SPI_INT_STTS == 0))
     {
       if(main_seq == 5)
       {
@@ -556,6 +593,23 @@ int main(void)
     
     #endif
     main_proc(&main_seq);
+    if(temp_set_seq)
+    {
+#if 0
+    	temp_delay++;
+    	if(temp_delay > 30000)
+    	{
+    		temp_delay=0;
+			  temp_set_seq = 0;
+			  main_seq = 6;
+    	}
+#endif
+    	if(Queue_Empty()>0)
+    	{
+    		temp_set_seq = 0;
+		  main_seq = 6;
+    	}
+    }
 
     /* USER CODE END WHILE */
 
